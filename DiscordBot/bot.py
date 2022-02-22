@@ -24,16 +24,18 @@ with open(token_path) as f:
     tokens = json.load(f)
     discord_token = tokens['discord']
     perspective_key = tokens['perspective']
+    ip_checker_key = tokens['ip_checker']
 
 
 class ModBot(discord.Client):
-    def __init__(self, key):
+    def __init__(self, perspective_key, ip_checker_key):
         intents = discord.Intents.default()
         super().__init__(command_prefix='.', intents=intents)
         self.group_num = None
         self.mod_channels = {} # Map from guild to the mod channel id for that guild
         self.reports = {} # Map from user IDs to the state of their report
-        self.perspective_key = key
+        self.perspective_key = perspective_key
+        self.ip_checker_key = ip_checker_key
 
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
@@ -109,6 +111,10 @@ class ModBot(discord.Client):
         scores = self.eval_text(message)
         await mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
 
+        fields_parsed = await self.parse_message(message)
+        ip_results = self.check_ip(fields_parsed["IP"])
+        await mod_channel.send("IP address belongs to city: {}, zipcode: {}".format(ip_results["city"], ip_results["zipcode"]))
+
     def eval_text(self, message):
         '''
         Given a message, forwards the message to Perspective and returns a dictionary of scores.
@@ -138,6 +144,36 @@ class ModBot(discord.Client):
     def code_format(self, text):
         return "```" + text + "```"
 
+    async def parse_message(self, message):
+        '''
+        Default message fields: Name, Intro, Followers, Following, IP
+        Assume all field entries separated by comma
+        '''
+        MAX_FIELDS = 5
+        field_entries = message.content.split(",")
+        if len(field_entries) > MAX_FIELDS:
+            reply = "Ill-formed message: {}".format(message.content)
+            await message.channel.send(reply)
+            return
+        fields = {}
+        field_names = ["Name", "Intro", "Followers", "Following", "IP"]
+        for i in range(MAX_FIELDS):
+            fields[field_names[i]] = field_entries[i]
+        return fields
 
-client = ModBot(perspective_key)
+
+    def check_ip(self, ip):
+        IP_GEO_URL = 'https://api.ipgeolocation.io/ipgeo'
+
+        params = (
+            ('apiKey', self.ip_checker_key),
+            ('ip', ip),
+            ('fields', 'city,zipcode'),
+        )
+
+        response = requests.get(IP_GEO_URL, params=params).json()
+        return response
+
+
+client = ModBot(perspective_key, ip_checker_key)
 client.run(discord_token)
