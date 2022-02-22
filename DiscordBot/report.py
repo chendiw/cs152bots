@@ -140,11 +140,8 @@ class Report:
         if self.state == State.THIRD_PARTY_IDENTIFIED:
             self.third_party_username = message.content
             print("Third party names: {}".format(self.third_party_username))
-            reply = "Thank you for reporting. Our content moderation team will review your report. \
-            This may result in the reported account suspension, shadowblock, or removal. \
-            You will hear back about our decision regarding this report in the next few weeks. \n\n \
-            Do you want us to block this account from any future interaction with you? \n \
-            Y for yes. N for no."
+            reply = "Thank you for reporting. Our content moderation team will review your report. This may result in the reported account suspension, shadowblock, or removal. You will hear back about our decision regarding this report in the next few weeks. \n\n \
+            Do you want us to block this account from any future interaction with you? \n Y for yes. N for no."
             self.state = State.TO_BLOCK
             return [reply]
 
@@ -154,7 +151,10 @@ class Report:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
             if m.group(1).upper() == 'Y':
                 self.block = True 
-            print("Blocked: {}".format(self.block))
+                return ["Reported account banned."]
+            else:
+                return ["Reported account not banned."]
+            
 
         return []
 
