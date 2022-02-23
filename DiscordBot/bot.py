@@ -7,6 +7,7 @@ import logging
 import re
 import requests
 from report import Report
+from math import radians, cos, sin, asin, sqrt
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -108,12 +109,11 @@ class ModBot(discord.Client):
         mod_channel = self.mod_channels[message.guild.id]
         await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
 
-        scores = self.eval_text(message)
-        await mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
+        # scores = self.eval_text(message)
+        # await mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
 
-        fields_parsed = await self.parse_message(message)
-        ip_results = self.check_ip(fields_parsed["IP"])
-        await mod_channel.send("IP address belongs to city: {}, zipcode: {}".format(ip_results["city"], ip_results["zipcode"]))
+        self.compute_sus_score(message)
+        # await mod_channel.send()
 
     def eval_text(self, message):
         '''
@@ -144,36 +144,95 @@ class ModBot(discord.Client):
     def code_format(self, text):
         return "```" + text + "```"
 
-    async def parse_message(self, message):
+    def parse_message(self, message):
         '''
-        Default message fields: Name, Intro, Followers, Following, IP
-        Assume all field entries separated by comma
+        Default message fields: Name -> String, Intro -> String, Followers -> String[], Following -> String[], IP -> String
+        Assume all field entries separated by semi-colon
         '''
         MAX_FIELDS = 5
-        field_entries = message.content.split(",")
-        if len(field_entries) > MAX_FIELDS:
-            reply = "Ill-formed message: {}".format(message.content)
-            await message.channel.send(reply)
-            return
+        field_entries = message.split(";")
+        # if len(field_entries) > MAX_FIELDS:
+        #     reply = "Ill-formed message: {}".format(message)
+        #     await message.channel.send(reply)
+        #     return
         fields = {}
         field_names = ["Name", "Intro", "Followers", "Following", "IP"]
         for i in range(MAX_FIELDS):
             fields[field_names[i]] = field_entries[i]
+            if field_names[i] == "IP":
+                fields["lat-long"] = self.check_ip_location(fields["IP"])
         return fields
 
-
-    def check_ip(self, ip):
+    def check_ip_location(self, ip):
+        '''
+        Retrieve zipcode, latitude and longitude data from the ip address
+        '''
         IP_GEO_URL = 'https://api.ipgeolocation.io/ipgeo'
 
         params = (
             ('apiKey', self.ip_checker_key),
             ('ip', ip),
-            ('fields', 'city,zipcode'),
+            ('fields', 'city,zipcode,latitude,longitude'),
         )
 
         response = requests.get(IP_GEO_URL, params=params).json()
-        return response
+        return (response["latitude"], response["longitude"])
 
+    def dist_from_lat_long(self, lat_long_1, lat_long_2):
+        '''
+        Referenced:
+        https://www.geeksforgeeks.org/program-distance-two-points-earth/#:~:text=For%20this%20divide%20the%20values,is%20the%20radius%20of%20Earth.
+        Return value in miles
+        '''
+        lat1, lon1 = float(lat_long_1[0]), float(lat_long_1[1])
+        lat2, lon2 = float(lat_long_2[0]), float(lat_long_2[1]) 
+        lon1 = radians(lon1)
+        lon2 = radians(lon2)
+        lat1 = radians(lat1)
+        lat2 = radians(lat2)
+
+        dlon = lon2 - lon1
+        dlat = lat2 - lat1
+        a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+        c = 2 * asin(sqrt(a))
+
+        # Radius of earth in kilometers. Use 3956 for miles
+        r = 3956
+        return(c * r)
+
+
+    def dist_from_similar_accnts(self, cur_accnt, accnts_criteria, threshold):
+        '''
+        For cur_accnt:
+        1. Compute its distance to all other similar accounts
+        2. Compute how many times the distance exceeds our threshold
+        3. If the count > |set_accnts|/2, flag cur_accnt
+        '''
+        cur_lat_long = accnts_criteria[cur_accnt]["lat-long"]
+        exceed_cnt = 0
+        for key, value in accnts_criteria.items():
+            if key != cur_accnt:
+                exceed_cnt += int(self.dist_from_lat_long(cur_lat_long, accnts_criteria[key]["lat-long"]) > threshold)
+        return int(exceed_cnt > (len(list(accnts_criteria.keys()))-1)/2)
+
+
+    # def cross_check_followers(self, followers):
+    #     '''
+
+    #     '''
+
+    def compute_sus_score(self, message):
+        similar_accnts = json.loads(message.content)
+        accnts_criteria = {}
+        for key, value in similar_accnts.items():
+            accnts_criteria[key] = self.parse_message(value)
+
+        sus_scores = {}
+        for key, value in accnts_criteria.items():
+            cur_score = 0
+            cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
+            sus_scores[key] = cur_score
+        print(sus_scores)
 
 client = ModBot(perspective_key, ip_checker_key)
 client.run(discord_token)
