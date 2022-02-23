@@ -196,10 +196,9 @@ class ModBot(discord.Client):
         a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
         c = 2 * asin(sqrt(a))
 
-        # Radius of earth in kilometers. Use 3956 for miles
+        # Radius of earth in miles
         r = 3956
         return(c * r)
-
 
     def dist_from_similar_accnts(self, cur_accnt, accnts_criteria, threshold):
         '''
@@ -221,7 +220,59 @@ class ModBot(discord.Client):
 
     #     '''
 
+    def search_char_sub(self, cur_accnt, accnts_criteria):
+        '''
+        Referenced:
+        https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5614409/
+
+        For cur_accnt:
+        1. For each character, if it differs from half of the other similar accounts, search whether it's an intentional substitution
+        2. If yes, increment count
+        '''
+        BLACKLIST = [
+            set(['l', '1', 'L', '|', '!', 'I', '/']),
+            set(['g', 'q', '9']),
+            set(['m', 'n']),
+            set(['u', 'v', 'U', 'V']),
+            set(['c', 'e']),
+            set(['b', '6']),
+            set(['o', '0', 'O']),
+            set(['Z', '2']),
+            set(['B', '8'])
+        ]
+
+        sub_cnt = 0
+        cur_name = accnts_criteria[cur_accnt]["Name"]
+        for i in range(len(cur_name)):
+            cur_char = cur_name[i]
+            diff = 0
+            common_char = {}
+            for key, value in accnts_criteria.items():
+                if i >= len(value["Name"]):
+                    continue
+                if key != cur_accnt and value["Name"][i] != cur_char:
+                    diff += 1
+                    if value["Name"][i] not in common_char.keys():
+                        common_char[value["Name"][i]] = 1
+                    else:
+                        common_char[value["Name"][i]] += 1
+            common_char_list = list(common_char.items())
+            common_char_list.sort(key = lambda x : x[1], reverse=True)
+
+            if diff > len(list(accnts_criteria.keys())) / 2:
+                for s in BLACKLIST:
+                    if common_char_list[0][0] in s:
+                        sub_cnt += int(cur_char in s)
+                        break
+        return int(sub_cnt > 0)
+
     def compute_sus_score(self, message):
+        '''
+        Sus score counts how many times an account is flagged in the following aspects:
+        1. The account ip address is far from other similar accounts
+        2. The account has less than 5 followers and the social network of the followers and following is closed
+        3. Intentional blacklisted character substitution detected
+        '''
         similar_accnts = json.loads(message.content)
         accnts_criteria = {}
         for key, value in similar_accnts.items():
@@ -231,6 +282,7 @@ class ModBot(discord.Client):
         for key, value in accnts_criteria.items():
             cur_score = 0
             cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
+            cur_score += self.search_char_sub(key, accnts_criteria)
             sus_scores[key] = cur_score
         print(sus_scores)
 
