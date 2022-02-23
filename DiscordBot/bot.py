@@ -215,10 +215,21 @@ class ModBot(discord.Client):
         return int(exceed_cnt > (len(list(accnts_criteria.keys()))-1)/2)
 
 
-    # def cross_check_followers(self, followers):
-    #     '''
-
-    #     '''
+    def check_followers(self, cur_accnt, accnts_criteria):
+        '''
+        For cur_accnt:
+        1. If it has no followers or no following, flag
+        2. Check closed cycle (TODO)
+        '''
+        followers_list = accnts_criteria[cur_accnt]["Followers"]
+        m1 = re.search('([0-9]+)', followers_list)
+        if not m1:
+            return 1
+        following_list = accnts_criteria[cur_accnt]["Following"]
+        m2 = re.search('([0-9]+)', followers_list)
+        if not m2:
+            return 1
+        return 0
 
     def search_char_sub(self, cur_accnt, accnts_criteria):
         '''
@@ -282,6 +293,7 @@ class ModBot(discord.Client):
         for key, value in accnts_criteria.items():
             cur_score = 0
             cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
+            cur_score += self.check_followers(key, accnts_criteria)
             cur_score += self.search_char_sub(key, accnts_criteria)
             sus_scores[key] = cur_score
         print(sus_scores)
