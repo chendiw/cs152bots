@@ -65,10 +65,14 @@ class ModBot(discord.Client):
         # Ignore messages from the bot 
         if message.author.id == self.user.id:
             return
-
+        # name='group-42', name='group-42-mod'
         # Check if this message was sent in a server ("guild") or if it's a DM
         if message.guild:
-            await self.handle_channel_message(message)
+            if message.channel.name == f'group-{self.group_num}':
+                await self.handle_channel_message(message)
+            if message.channel.name == f'group-{self.group_num}-mod':
+                await self.handle_moderator_react(message)
+                
         else:
             await self.handle_dm(message)
 
@@ -112,9 +116,25 @@ class ModBot(discord.Client):
         # scores = self.eval_text(message)
         # await mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
 
-        self.compute_sus_score(message)
-        # await mod_channel.send()
+        sus_score, unusual_report_counts = self.compute_sus_score(message)
+        await mod_channel.send(f'We have suspicious score calculated for the accounts as following\n {sus_score}')
+        await mod_channel.send(f'The following accounts have unusual high report counts\n {unusual_report_counts}')
+        await mod_channel.send(f'Based on the aggregated stats, on which account you would like to take an action?')
+        await mod_channel.send(f'Please type in the userid, and the action you want to take. Separated by comma, no space in between.')
 
+    async def handle_moderator_react(self, message):
+        # Only handle messages sent in the "group-#-mod" channel
+        # mainly parse the reaction of moderator on acount name, and action taken 
+        if not message.channel.name == f'group-{self.group_num}-mod':
+            return
+        mod_channel = self.mod_channels[message.guild.id]
+        moderator_res = message.content.split(',') # should be a list of [userid, action]
+        
+        if moderator_res[1] == "BAN":
+            await mod_channel.send("\U0001F600")
+        elif moderator_res[1] == "SUSPEND":
+            await mod_channel.send("\U0001F601")
+        
     def eval_text(self, message):
         '''
         Given a message, forwards the message to Perspective and returns a dictionary of scores.
@@ -149,14 +169,14 @@ class ModBot(discord.Client):
         Default message fields: Name -> String, Intro -> String, Followers -> String[], Following -> String[], IP -> String
         Assume all field entries separated by semi-colon
         '''
-        MAX_FIELDS = 5
+        MAX_FIELDS = 6
         field_entries = message.split(";")
         # if len(field_entries) > MAX_FIELDS:
         #     reply = "Ill-formed message: {}".format(message)
         #     await message.channel.send(reply)
         #     return
         fields = {}
-        field_names = ["Name", "Intro", "Followers", "Following", "IP"]
+        field_names = ["Name", "Intro", "Followers", "Following", "IP", "Report Counts"]
         for i in range(MAX_FIELDS):
             fields[field_names[i]] = field_entries[i]
             if field_names[i] == "IP":
@@ -288,7 +308,10 @@ class ModBot(discord.Client):
         accnts_criteria = {}
         for key, value in similar_accnts.items():
             accnts_criteria[key] = self.parse_message(value)
-
+       
+        unusual_report_counts = {}
+        # set normal number of reports per user is <= 1
+        report_counts_benchmark = 1
         sus_scores = {}
         for key, value in accnts_criteria.items():
             cur_score = 0
@@ -296,7 +319,20 @@ class ModBot(discord.Client):
             cur_score += self.check_followers(key, accnts_criteria)
             cur_score += self.search_char_sub(key, accnts_criteria)
             sus_scores[key] = cur_score
-        print(sus_scores)
+            if int(accnts_criteria[key]["Report Counts"]) > report_counts_benchmark:
+                unusual_report_counts[key] = True
+            else:
+                unusual_report_counts[key] = False
+        return sus_scores, unusual_report_counts
+
+
+    def decision_making(self, username):
+        '''
+        Combine aggregated statistics on certain accounts to make decisions 
+        on actions upon suspicious account activities
+        '''
+        
+
 
 client = ModBot(perspective_key, ip_checker_key)
 client.run(discord_token)
