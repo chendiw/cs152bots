@@ -68,6 +68,8 @@ class Report:
         self.third_party_username = None
         self.block = False
         self.broad_report_category = None
+        self.reporter = None
+        self.reportee = None
 
     
     async def handle_message(self, message):
@@ -86,6 +88,7 @@ class Report:
             reply += "Say `help` at any time for more information.\n\n"
             reply += "Please copy paste the link to the message you want to report.\n"
             reply += "You can obtain this link by right-clicking the message and clicking `Copy Message Link`."
+            self.reporter =  message.author.name
             self.state = State.AWAITING_MESSAGE
             return [reply]
         
@@ -110,6 +113,7 @@ class Report:
             self.state = State.WHY_REPORT_ACCNT
             reply = "I found this message:" + "```" + message.author.name + ": " + message.content + "```" + "\n"
             reply += "Why are you reporting this account? (case insensitive)\n"
+            self.reportee = message.author.name
             for k, v in self.REPORT_REASON_DICT.items():
                 reply += "Reply {} for {}\n".format(k, v)
             return [reply]
@@ -121,7 +125,8 @@ class Report:
             response = m.group(1).upper()
             if response != 'B' and response != 'C':
                 reply = self.other_cases(response)
-                self.report_complete()
+                # self.state = State.TO_BLOCK
+                # self.report_complete()
                 # return ["A member of the team will investigate your case. Thanks for reporting."]
                 return reply
             elif response == 'C':
@@ -133,6 +138,7 @@ class Report:
                     reply += "Reply {} for {}\n".format(k, v)
                 return [reply]
             else:
+                self.broad_report_category = self.BROAD_REPORT_DICT['B']
                 self.state = State.NON_LIKABLE_TYPE
                 return self.non_likable()
         
@@ -185,9 +191,9 @@ class Report:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
             if m.group(1).upper() == 'Y':
                 self.block = True 
-                return ["TRANSFER", message.author.name, self.broad_report_category, self.fake_accnt_type, "Reported account banned."]
+                return ["TRANSFER", self.reporter, self.reportee, self.broad_report_category, self.fake_accnt_type, "Reported account banned."]
             else:
-                return ["TRANSFER", message.author.name, self.broad_report_category, self.fake_accnt_type,"Reported account not banned."]
+                return ["TRANSFER", self.reporter, self.reportee, self.broad_report_category, self.fake_accnt_type,"Reported account not banned."]
         
 
         return []
@@ -202,13 +208,15 @@ class Report:
         return [reply]
 
     def other_cases(self, res):
+        if res != 'A' and res != 'D':
+            return ['Please provide a valid choice.']
         print(f'getting other reports accounts {self.BROAD_REPORT_DICT[res]}')
         self.broad_report_category = self.BROAD_REPORT_DICT[res]
         if res == 'A':
-            return self.A_TYPE_RES
+            return ["TRANSFER", self.reporter, self.reportee, self.broad_report_category, self.fake_accnt_type,] + self.A_TYPE_RES 
         elif res == 'D':
             return ["A member of the team will investigate your case. Thanks for reporting."]
-        else:
-            return ['Please provide a valid choice.']
+        
+            
     
 

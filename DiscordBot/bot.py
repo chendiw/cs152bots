@@ -99,8 +99,9 @@ class ModBot(discord.Client):
         # This is has some security issues though
         if (responses[0] == "TRANSFER"):
             mod_channel = self.mod_channels[915746011757019217] # use a hack
-            await mod_channel.send(f'You have a new report case on account: {responses[1]} to review with the following reason: {responses[2]}, specifically under fake account category, this user pretends to be {responses[3]}\n')
-            await message.channel.send(responses[4])
+            await mod_channel.send(f'User: `{responses[1]}` just reported user: `{responses[2]}`  with the following reason: `{responses[3]}`, specifically under fake account category, this user pretends to be `{responses[4]}`\n')
+            for i in range(5, len(responses)):
+                await message.channel.send(responses[i])
         else:
             for r in responses:
                 await message.channel.send(r)
@@ -137,6 +138,8 @@ class ModBot(discord.Client):
             return
         mod_channel = self.mod_channels[message.guild.id]
         moderator_res = message.content.split(',') # should be a list of [userid, action]
+        if len(moderator_res) != 2:
+            return
         if moderator_res[1] == "BAN":
             await mod_channel.send("\U0001F600")
             await mod_channel.send(f"Acount: {moderator_res[0]} is successfully banned from all users.")
