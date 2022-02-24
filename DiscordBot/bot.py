@@ -119,8 +119,9 @@ class ModBot(discord.Client):
         sus_score, unusual_report_counts = self.compute_sus_score(message)
         await mod_channel.send(f'We have suspicious score calculated for the accounts as following\n {sus_score}')
         await mod_channel.send(f'The following accounts have unusual high report counts\n {unusual_report_counts}')
-        await mod_channel.send(f'Based on the aggregated stats, on which account you would like to take an action?')
-        await mod_channel.send(f'Please type in the userid, and the action you want to take. Separated by comma, no space in between.')
+        decision = self.decision_making(sus_score, unusual_report_counts)
+        await mod_channel.send(f'We find the following accounts most suspicious\n {decision}')
+        await mod_channel.send(f'Please type in the userid (case sensitive), and the action you want to take. Separated by comma, no space in between.')
 
     async def handle_moderator_react(self, message):
         # Only handle messages sent in the "group-#-mod" channel
@@ -318,21 +319,25 @@ class ModBot(discord.Client):
             cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
             cur_score += self.check_followers(key, accnts_criteria)
             cur_score += self.search_char_sub(key, accnts_criteria)
-            sus_scores[key] = cur_score
+            sus_scores[accnts_criteria[key]["Name"]] = cur_score
             if int(accnts_criteria[key]["Report Counts"]) > report_counts_benchmark:
-                unusual_report_counts[key] = True
+                unusual_report_counts[accnts_criteria[key]["Name"]] = True
             else:
-                unusual_report_counts[key] = False
+                unusual_report_counts[accnts_criteria[key]["Name"]] = False
         return sus_scores, unusual_report_counts
 
 
-    def decision_making(self, username):
+    def decision_making(self, sus_score, unusual_report_counts):
         '''
         Combine aggregated statistics on certain accounts to make decisions 
         on actions upon suspicious account activities
         '''
-        
-
+        accounts_to_look = []
+        avg_sus = sum(sus_score.values())/ len(sus_score)
+        for k in sus_score.keys():
+            if sus_score[k] > avg_sus and unusual_report_counts[k]:
+                accounts_to_look.append(k)
+        return accounts_to_look
 
 client = ModBot(perspective_key, ip_checker_key)
 client.run(discord_token)
