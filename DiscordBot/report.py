@@ -12,6 +12,8 @@ class State(Enum):
     MYSELF_IDENTIFIED = auto()
     THIRD_PARTY_IDENTIFIED = auto()
     TO_BLOCK = auto()
+    NON_LIKABLE_TYPE = auto()
+    
 
 
 class Report:
@@ -20,11 +22,26 @@ class Report:
     HELP_KEYWORD = "help"
 
     # Options for report reason
-    REPORT_REASON_DICT = {'A': "Monetary loss due to interaction with this account", 
+    REPORT_REASON_DICT = {
+                        'A': "It may be under the age of 13",
                         'B': "It's posting content that shouldn't be on Instagram",
                         'C': "It's pretending to be someone else",
-                        'D': "It may be under the age of 13",
-                        'E': "Other reasons and a moderator will review your case."}
+                        'D': "Other reasons and a moderator will review your case."
+                        }
+    A_TYPE_RES = ["About reporting a child under the age of 13 \n\n We requires everyone to be at least 13 years old before they can create an account",
+                    "In some jurisdictions, this age limit may be higher.\n",
+                    "If you'd like to report an account belonging to someone under 13 or if you believe someone is impersonating your child who's under 13, visit our Help Center.\n"
+                ]
+
+    B_TYPE_DICT = {'A': "It's a spam",
+                    'B': "I just don't like it",
+                    'C': "Suicide, self-injury or eating disorders",
+                    'D': "Sale of illegal or regulated goods",
+                    'E': "Nudity or sexual activity",
+                    'F': "Hate speech or symbols",
+                    }
+    NON_LIKABLE_FOLLOWUP= ["Thank you for your report! \n Do you want to block this account in the future? Y for yes. N for no."]
+
 
     # Options for fake account type
     FAKE_ACCNT_TYPE_DICT = {'A': "Myself",
@@ -96,15 +113,24 @@ class Report:
             if not m:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
             response = m.group(1).upper()
-            if response != 'C':
+            if response != 'B' and response != 'C':
+                reply = self.other_cases(response)
                 self.report_complete()
-                return ["A member of the team will investigate your case. Thanks for reporting."]
-            else:
+                # return ["A member of the team will investigate your case. Thanks for reporting."]
+                return reply
+            elif response == 'C':
                 self.state = State.FAKE_ACCNT_IDENTIFIED
                 reply = "We'd like to know more. Who is this account pretending to be?\n"
                 for k, v in self.FAKE_ACCNT_TYPE_DICT.items():
                     reply += "Reply {} for {}\n".format(k, v)
                 return [reply]
+            else:
+                self.state = State.NON_LIKABLE_TYPE
+                return self.non_likable()
+        
+        if self.state == State.NON_LIKABLE_TYPE:
+            self.state = State.TO_BLOCK
+            return self.NON_LIKABLE_FOLLOWUP
 
         if self.state == State.FAKE_ACCNT_IDENTIFIED:
             m = re.search('([ABCD|abcd])', message.content)
@@ -161,7 +187,18 @@ class Report:
     def report_complete(self):
         return self.state == State.REPORT_COMPLETE
     
+    def non_likable(self):
+        reply = ""
+        for k, v in self.B_TYPE_DICT.items():
+            reply += "Reply {} for {}\n".format(k, v)
+        return [reply]
 
-
+    def other_cases(self, res):
+        if res == 'A':
+            return self.A_TYPE_RES
+        elif res == 'D':
+            return ["A member of the team will investigate your case. Thanks for reporting."]
+        else:
+            return ['Please provide a valid choice.']
     
 

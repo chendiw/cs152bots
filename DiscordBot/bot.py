@@ -111,17 +111,18 @@ class ModBot(discord.Client):
 
         # Forward the message to the mod channel
         mod_channel = self.mod_channels[message.guild.id]
-        await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
-
+        # await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
+        
         # scores = self.eval_text(message)
         # await mod_channel.send(self.code_format(json.dumps(scores, indent=2)))
-
-        sus_score, unusual_report_counts = self.compute_sus_score(message)
-        await mod_channel.send(f'We have suspicious score calculated for the accounts as following\n {sus_score}')
-        await mod_channel.send(f'The following accounts have unusual high report counts\n {unusual_report_counts}')
+        accnts_criteria = self.batch_parse(message)
+        await mod_channel.send(f'{accnts_criteria}\n\n')
+        sus_score, unusual_report_counts = self.compute_sus_score(accnts_criteria)
+        await mod_channel.send(f'We have suspicious score calculated for the accounts as following\n {sus_score}. Those scores are specifically for impersonation.\n')
+        await mod_channel.send(f'The following accounts have unusual high report counts\n {unusual_report_counts} on impersonation.\n')
         decision = self.decision_making(sus_score, unusual_report_counts)
-        await mod_channel.send(f'We find the following accounts most suspicious\n {decision}')
-        await mod_channel.send(f'Please type in the userid (case sensitive), and the action you want to take. Separated by comma, no space in between.')
+        await mod_channel.send(f'We find the following accounts most likely to be fake accounts:\n {decision}\n')
+        await mod_channel.send(f'Please type in the userid (case sensitive), and the action you want to take. Separated by comma, no space in between.\n')
 
     async def handle_moderator_react(self, message):
         # Only handle messages sent in the "group-#-mod" channel
@@ -130,12 +131,15 @@ class ModBot(discord.Client):
             return
         mod_channel = self.mod_channels[message.guild.id]
         moderator_res = message.content.split(',') # should be a list of [userid, action]
-        
         if moderator_res[1] == "BAN":
             await mod_channel.send("\U0001F600")
+            await mod_channel.send(f"Acount: {moderator_res[0]} is successfully banned from all users.")
         elif moderator_res[1] == "SUSPEND":
             await mod_channel.send("\U0001F601")
-        
+            await mod_channel.send(f"Acount: {moderator_res[0]} will be suspended for a month.")
+        else:
+            await mod_channel.send(f"Please provide a valid reaction towards the account in question.")
+
     def eval_text(self, message):
         '''
         Given a message, forwards the message to Perspective and returns a dictionary of scores.
@@ -168,16 +172,17 @@ class ModBot(discord.Client):
     def parse_message(self, message):
         '''
         Default message fields: Name -> String, Intro -> String, Followers -> String[], Following -> String[], IP -> String
+        Report Counts -> String, Reported reasons -> String, Latest reported by -> String
         Assume all field entries separated by semi-colon
         '''
-        MAX_FIELDS = 6
-        field_entries = message.split(";")
+        MAX_FIELDS = 7
+        field_entries = message.split("; ")
         # if len(field_entries) > MAX_FIELDS:
         #     reply = "Ill-formed message: {}".format(message)
         #     await message.channel.send(reply)
         #     return
         fields = {}
-        field_names = ["Name", "Intro", "Followers", "Following", "IP", "Report Counts"]
+        field_names = ["Name", "Intro", "Followers", "Following", "IP", "Report Counts", "Reported reasons"]
         for i in range(MAX_FIELDS):
             fields[field_names[i]] = field_entries[i]
             if field_names[i] == "IP":
@@ -298,32 +303,35 @@ class ModBot(discord.Client):
                         break
         return int(sub_cnt > 0)
 
-    def compute_sus_score(self, message):
+    def batch_parse(self, message):
+        similar_accnts = json.loads(message.content)
+        accnts_criteria = {}
+        for key, value in similar_accnts.items():
+            accnts_criteria[key] = self.parse_message(value)
+        return accnts_criteria
+
+    def compute_sus_score(self, accnts_criteria):
         '''
         Sus score counts how many times an account is flagged in the following aspects:
         1. The account ip address is far from other similar accounts
         2. The account has less than 5 followers and the social network of the followers and following is closed
         3. Intentional blacklisted character substitution detected
         '''
-        similar_accnts = json.loads(message.content)
-        accnts_criteria = {}
-        for key, value in similar_accnts.items():
-            accnts_criteria[key] = self.parse_message(value)
        
-        unusual_report_counts = {}
+        unusual_report_counts = []
         # set normal number of reports per user is <= 1
         report_counts_benchmark = 1
         sus_scores = {}
         for key, value in accnts_criteria.items():
+            if accnts_criteria[key]['Reported reasons'] != "Impersonation":
+                continue
             cur_score = 0
             cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
             cur_score += self.check_followers(key, accnts_criteria)
             cur_score += self.search_char_sub(key, accnts_criteria)
             sus_scores[accnts_criteria[key]["Name"]] = cur_score
             if int(accnts_criteria[key]["Report Counts"]) > report_counts_benchmark:
-                unusual_report_counts[accnts_criteria[key]["Name"]] = True
-            else:
-                unusual_report_counts[accnts_criteria[key]["Name"]] = False
+                unusual_report_counts.append(accnts_criteria[key]["Name"])
         return sus_scores, unusual_report_counts
 
 
