@@ -65,19 +65,18 @@ class ModBot(discord.Client):
         # Ignore messages from the bot 
         if message.author.id == self.user.id:
             return
-        # name='group-42', name='group-42-mod'
         # Check if this message was sent in a server ("guild") or if it's a DM
         if message.guild:
             if message.channel.name == f'group-{self.group_num}':
                 await self.handle_channel_message(message)
             if message.channel.name == f'group-{self.group_num}-mod':
-                await self.handle_moderator_react(message)
-                
+                await self.handle_moderator_react(message)     
         else:
             await self.handle_dm(message)
 
     async def handle_dm(self, message):
         # Handle a help message
+        
         if message.content == Report.HELP_KEYWORD:
             reply =  "Use the `report` command to begin the reporting process.\n"
             reply += "Use the `cancel` command to cancel the report process.\n"
@@ -97,8 +96,14 @@ class ModBot(discord.Client):
 
         # Let the report class handle this message; forward all the messages it returns to uss
         responses = await self.reports[author_id].handle_message(message)
-        for r in responses:
-            await message.channel.send(r)
+        # This is has some security issues though
+        if (responses[0] == "TRANSFER"):
+            mod_channel = self.mod_channels[915746011757019217] # use a hack
+            await mod_channel.send(f'You have a new report case on account: {responses[1]} to review with the following reason: {responses[2]}, specifically under fake account category, this user pretends to be {responses[3]}\n')
+            await message.channel.send(responses[4])
+        else:
+            for r in responses:
+                await message.channel.send(r)
 
         # If the report is complete or cancelled, remove it from our map
         if self.reports[author_id].report_complete():
@@ -111,6 +116,7 @@ class ModBot(discord.Client):
 
         # Forward the message to the mod channel
         mod_channel = self.mod_channels[message.guild.id]
+        print(f"normal channel id {message.guild.id}")
         # await mod_channel.send(f'Forwarded message:\n{message.author.name}: "{message.content}"')
         
         # scores = self.eval_text(message)
@@ -342,8 +348,8 @@ class ModBot(discord.Client):
         '''
         accounts_to_look = []
         avg_sus = sum(sus_score.values())/ len(sus_score)
-        for k in sus_score.keys():
-            if sus_score[k] > avg_sus and unusual_report_counts[k]:
+        for i,k in enumerate(sus_score.keys()):
+            if sus_score[k] > avg_sus and unusual_report_counts[i]:
                 accounts_to_look.append(k)
         return accounts_to_look
 

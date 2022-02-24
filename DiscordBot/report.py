@@ -13,8 +13,6 @@ class State(Enum):
     THIRD_PARTY_IDENTIFIED = auto()
     TO_BLOCK = auto()
     NON_LIKABLE_TYPE = auto()
-    
-
 
 class Report:
     START_KEYWORD = "report"
@@ -53,15 +51,23 @@ class Report:
     RESPONSE_MYSELF_DICT = {'A': "Pirating my photo for its profile or posts.", 
                             'B': "Messaging others on my behalf.", 
                             'C': "Making improper comments on my behalf."}
+    BROAD_REPORT_DICT = {
+                        'A': "Under Age User",
+                        'B': "Inappropriate Content",
+                        'C': "Impersonation",
+                        'D': "Other reasons and a moderator will review your case."
+                        }
 
     def __init__(self, client):
         self.state = State.REPORT_START
         self.client = client
         self.message = None
+        self.reported_account = None
         self.fake_accnt_type = None
         self.sus_behavior = []
         self.third_party_username = None
         self.block = False
+        self.broad_report_category = None
 
     
     async def handle_message(self, message):
@@ -119,6 +125,8 @@ class Report:
                 # return ["A member of the team will investigate your case. Thanks for reporting."]
                 return reply
             elif response == 'C':
+                print(f'getting fake accounts {self.BROAD_REPORT_DICT[response]}')
+                self.broad_report_category = self.BROAD_REPORT_DICT[response]
                 self.state = State.FAKE_ACCNT_IDENTIFIED
                 reply = "We'd like to know more. Who is this account pretending to be?\n"
                 for k, v in self.FAKE_ACCNT_TYPE_DICT.items():
@@ -177,10 +185,10 @@ class Report:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
             if m.group(1).upper() == 'Y':
                 self.block = True 
-                return ["Reported account banned."]
+                return ["TRANSFER", message.author.name, self.broad_report_category, self.fake_accnt_type, "Reported account banned."]
             else:
-                return ["Reported account not banned."]
-            
+                return ["TRANSFER", message.author.name, self.broad_report_category, self.fake_accnt_type,"Reported account not banned."]
+        
 
         return []
 
@@ -194,6 +202,8 @@ class Report:
         return [reply]
 
     def other_cases(self, res):
+        print(f'getting other reports accounts {self.BROAD_REPORT_DICT[res]}')
+        self.broad_report_category = self.BROAD_REPORT_DICT[res]
         if res == 'A':
             return self.A_TYPE_RES
         elif res == 'D':
