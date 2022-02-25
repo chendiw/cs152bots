@@ -292,21 +292,37 @@ class ModBot(discord.Client):
         '''
         For cur_accnt:
         1. If it has no followers or no following, flag
-        2. Check closed cycle (TODO)
+        2. If a lot of its followers are previously flagged, flag
         '''
+        THRESHOLD = 5
         if user_report_react:
             cur_accnt = "1"
         followers_list = accnts_criteria[cur_accnt]["Followers"]
         following_list = accnts_criteria[cur_accnt]["Following"]
+        flag = False
         if user_report_react:
-            return int(len(following_list) == 0 or len(followers_list) == 0)
+            if (len(following_list) == 0) or (len(followers_list) == 0):
+                flag = True
+            else:
+                with open("sample_accounts_state.json", "r") as db_f:
+                    accnts_history = json.loads(db_f.read())
+                    followers_flag = 0
+                    followings_flag = 0
+                    for i in followers_list:
+                        if accnts_history[str(i)] == 1:
+                            followers_flag += 1
+                    for i in following_list:
+                        if accnts_history[str(i)] == 1:
+                            followings_flag += 1
+                    if followers_flag > THRESHOLD or followings_flag > THRESHOLD:
+                        flag = True
+            return int(flag)
+
         m1 = re.search('([0-9]+)', followers_list)
-        if not m1:
-            return 1
         m2 = re.search('([0-9]+)', followers_list)
-        if not m2:
-            return 1
-        return 0
+        if (not m1) or (not m2):
+            flag = True
+        return int(flag)
 
     def search_char_sub(self, cur_accnt, accnts_criteria, user_report_react=False):
         '''
@@ -437,6 +453,10 @@ class ModBot(discord.Client):
         return all_us[random.randint(0, len(all_us)-1)]
 
     def sample_accounts_db(self, total_accnt, percentage_flagged):
+        '''
+        Simulate (in a larger db) some accounts have previously been flagged.
+        If many of the followers of an account have been flagged, increment sus score by the followers field
+        '''
         TOTAL_ACCNT = total_accnt
         PERCT_FLAGGED = percentage_flagged
 
