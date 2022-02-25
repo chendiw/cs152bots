@@ -12,7 +12,7 @@ class State(Enum):
     MYSELF_IDENTIFIED = auto()
     THIRD_PARTY_IDENTIFIED = auto()
     TO_BLOCK = auto()
-
+    NON_LIKABLE_TYPE = auto()
 
 class Report:
     START_KEYWORD = "report"
@@ -20,11 +20,26 @@ class Report:
     HELP_KEYWORD = "help"
 
     # Options for report reason
-    REPORT_REASON_DICT = {'A': "Monetary loss due to interaction with this account", 
+    REPORT_REASON_DICT = {
+                        'A': "It may be under the age of 13",
                         'B': "It's posting content that shouldn't be on Instagram",
                         'C': "It's pretending to be someone else",
-                        'D': "It may be under the age of 13",
-                        'E': "Other reasons and a moderator will review your case."}
+                        'D': "Other reasons and a moderator will review your case."
+                        }
+    A_TYPE_RES = ["About reporting a child under the age of 13 \n\n We requires everyone to be at least 13 years old before they can create an account",
+                    "In some jurisdictions, this age limit may be higher.\n",
+                    "If you'd like to report an account belonging to someone under 13 or if you believe someone is impersonating your child who's under 13, visit our Help Center.\n"
+                ]
+
+    B_TYPE_DICT = {'A': "It's a spam",
+                    'B': "I just don't like it",
+                    'C': "Suicide, self-injury or eating disorders",
+                    'D': "Sale of illegal or regulated goods",
+                    'E': "Nudity or sexual activity",
+                    'F': "Hate speech or symbols",
+                    }
+    NON_LIKABLE_FOLLOWUP= ["Thank you for your report! \n Do you want to block this account in the future? Y for yes. N for no."]
+
 
     # Options for fake account type
     FAKE_ACCNT_TYPE_DICT = {'A': "Myself",
@@ -36,15 +51,25 @@ class Report:
     RESPONSE_MYSELF_DICT = {'A': "Pirating my photo for its profile or posts.", 
                             'B': "Messaging others on my behalf.", 
                             'C': "Making improper comments on my behalf."}
+    BROAD_REPORT_DICT = {
+                        'A': "Under Age User",
+                        'B': "Inappropriate Content",
+                        'C': "Impersonation",
+                        'D': "Other reasons and a moderator will review your case."
+                        }
 
     def __init__(self, client):
         self.state = State.REPORT_START
         self.client = client
         self.message = None
+        self.reported_account = None
         self.fake_accnt_type = None
         self.sus_behavior = []
         self.third_party_username = None
         self.block = False
+        self.broad_report_category = None
+        self.reporter = None
+        self.reportee = None
 
     
     async def handle_message(self, message):
@@ -63,6 +88,7 @@ class Report:
             reply += "Say `help` at any time for more information.\n\n"
             reply += "Please copy paste the link to the message you want to report.\n"
             reply += "You can obtain this link by right-clicking the message and clicking `Copy Message Link`."
+            self.reporter =  message.author.name
             self.state = State.AWAITING_MESSAGE
             return [reply]
         
@@ -87,6 +113,7 @@ class Report:
             self.state = State.WHY_REPORT_ACCNT
             reply = "I found this message:" + "```" + message.author.name + ": " + message.content + "```" + "\n"
             reply += "Why are you reporting this account? (case insensitive)\n"
+            self.reportee = message.author.name
             for k, v in self.REPORT_REASON_DICT.items():
                 reply += "Reply {} for {}\n".format(k, v)
             return [reply]
@@ -96,15 +123,28 @@ class Report:
             if not m:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
             response = m.group(1).upper()
-            if response != 'C':
-                self.report_complete()
-                return ["A member of the team will investigate your case. Thanks for reporting."]
-            else:
+            if response != 'B' and response != 'C':
+                reply = self.other_cases(response)
+                # self.state = State.TO_BLOCK
+                # self.report_complete()
+                # return ["A member of the team will investigate your case. Thanks for reporting."]
+                return reply
+            elif response == 'C':
+                print(f'getting fake accounts {self.BROAD_REPORT_DICT[response]}')
+                self.broad_report_category = self.BROAD_REPORT_DICT[response]
                 self.state = State.FAKE_ACCNT_IDENTIFIED
                 reply = "We'd like to know more. Who is this account pretending to be?\n"
                 for k, v in self.FAKE_ACCNT_TYPE_DICT.items():
                     reply += "Reply {} for {}\n".format(k, v)
                 return [reply]
+            else:
+                self.broad_report_category = self.BROAD_REPORT_DICT['B']
+                self.state = State.NON_LIKABLE_TYPE
+                return self.non_likable()
+        
+        if self.state == State.NON_LIKABLE_TYPE:
+            self.state = State.TO_BLOCK
+            return self.NON_LIKABLE_FOLLOWUP
 
         if self.state == State.FAKE_ACCNT_IDENTIFIED:
             m = re.search('([ABCD|abcd])', message.content)
@@ -151,17 +191,32 @@ class Report:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
             if m.group(1).upper() == 'Y':
                 self.block = True 
-                return ["Reported account banned."]
+                return ["TRANSFER", self.reporter, self.reportee, self.third_party_username, self.broad_report_category, self.fake_accnt_type, "Reported account banned."]
             else:
-                return ["Reported account not banned."]
-            
+                return ["TRANSFER", self.reporter, self.reportee, self.third_party_username, self.broad_report_category, self.fake_accnt_type,"Reported account not banned."]
+        
 
         return []
 
     def report_complete(self):
         return self.state == State.REPORT_COMPLETE
     
+    def non_likable(self):
+        reply = ""
+        for k, v in self.B_TYPE_DICT.items():
+            reply += "Reply {} for {}\n".format(k, v)
+        return [reply]
 
-
+    def other_cases(self, res):
+        if res != 'A' and res != 'D':
+            return ['Please provide a valid choice.']
+        print(f'getting other reports accounts {self.BROAD_REPORT_DICT[res]}')
+        self.broad_report_category = self.BROAD_REPORT_DICT[res]
+        if res == 'A':
+            return ["TRANSFER", self.reporter, self.reportee, self.broad_report_category, self.fake_accnt_type,] + self.A_TYPE_RES 
+        elif res == 'D':
+            return ["A member of the team will investigate your case. Thanks for reporting."]
+        
+            
     
 
