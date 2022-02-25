@@ -1,3 +1,0 @@
-[submodule "ML/instafake-dataset"]
-	path = ML/instafake-dataset
-	url = https://github.com/fcakyon/instafake-dataset.git
