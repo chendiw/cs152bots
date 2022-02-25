@@ -103,8 +103,12 @@ class ModBot(discord.Client):
             await mod_channel.send(f'User: `{responses[1]}` just reported user: `{responses[2]}`  with the following reason: `{responses[4]}`, specifically under fake account category, this user pretends to be `{responses[5]}` whose user name is: `{responses[3]}`\n')
             for i in range(5, len(responses)):
                 await message.channel.send(responses[i])
-            user_criteria = self.generate_sample_data(responses[1])
-            reported_criteria = self.generate_sample_data(responses[2], responses[3])
+            if responses[3] == "None":
+                user_criteria = self.generate_sample_data(responses[1])
+                reported_criteria = self.generate_sample_data(responses[2], responses[4])
+            else:
+                user_criteria = self.generate_sample_data(responses[3])
+                reported_criteria = self.generate_sample_data(responses[2], responses[4])
             aggregate_criteria = {"0": user_criteria, "1": reported_criteria}
             print(aggregate_criteria)
             await mod_channel.send(f'{aggregate_criteria}\n\n')
@@ -314,7 +318,7 @@ class ModBot(discord.Client):
         2. If yes, increment count
         '''
         BLACKLIST = [
-            set(['l', '1', 'L', '|', '!', 'I', '/']),
+            set(['l', '1', 'L', '|', '!', 'I', '/', 'i']),
             set(['g', 'q', '9']),
             set(['m', 'n']),
             set(['u', 'v', 'U', 'V']),
@@ -371,7 +375,7 @@ class ModBot(discord.Client):
         4. If the account is reported by the user, sus score += 1
         '''
         unusual_report_counts = []
-        report_counts_benchmark = 2
+        report_counts_benchmark = 1
 
         if user_report_react:
             sus_scores = {}
