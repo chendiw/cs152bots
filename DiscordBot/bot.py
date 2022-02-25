@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import requests
+import random
 from report import Report
 from math import radians, cos, sin, asin, sqrt
 
@@ -102,6 +103,17 @@ class ModBot(discord.Client):
             await mod_channel.send(f'User: `{responses[1]}` just reported user: `{responses[2]}`  with the following reason: `{responses[3]}`, specifically under fake account category, this user pretends to be `{responses[4]}`\n')
             for i in range(5, len(responses)):
                 await message.channel.send(responses[i])
+            user_criteria = self.generate_sample_data(responses[1])
+            reported_criteria = self.generate_sample_data(responses[2], responses[3])
+            aggregate_criteria = {"0": user_criteria, "1": reported_criteria}
+            print(aggregate_criteria)
+            await mod_channel.send(f'{aggregate_criteria}\n\n')
+            sus_score, unusual_report_counts = self.compute_sus_score(aggregate_criteria, user_report_react=True)
+            await mod_channel.send(f'We have suspicious score calculated for the accounts as following\n {sus_score}. Those scores are specifically for impersonation.\n')
+            await mod_channel.send(f'The following accounts have unusual high report counts\n {unusual_report_counts} on impersonation.\n')
+            decision = self.decision_making(sus_score, unusual_report_counts)
+            await mod_channel.send(f'We find the following accounts most likely to be fake accounts:\n {decision}\n')
+            await mod_channel.send(f'Please type in the userid (case sensitive), and the action you want to take. Separated by comma, no space in between.\n')
         else:
             for r in responses:
                 await message.channel.send(r)
@@ -178,6 +190,10 @@ class ModBot(discord.Client):
     def code_format(self, text):
         return "```" + text + "```"
 
+
+
+    # ======================= Parse Direct Message to Group Channal of Multiple Similar Accounts ========================
+
     def parse_message(self, message):
         '''
         Default message fields: Name -> String, Intro -> String, Followers -> String[], Following -> String[], IP -> String
@@ -197,6 +213,18 @@ class ModBot(discord.Client):
             if field_names[i] == "IP":
                 fields["lat-long"] = self.check_ip_location(fields["IP"])
         return fields
+
+    def batch_parse(self, similar_accnts):
+        # similar_accnts = json.loads(message.content)
+        # similar_accnts = json.loads(message)
+        accnts_criteria = {}
+        for key, value in similar_accnts.items():
+            accnts_criteria[key] = self.parse_message(value)
+        return accnts_criteria
+
+
+
+    # ======================================== Heuristics for Suspicious Score =============================================
 
     def check_ip_location(self, ip):
         '''
@@ -235,38 +263,47 @@ class ModBot(discord.Client):
         r = 3956
         return(c * r)
 
-    def dist_from_similar_accnts(self, cur_accnt, accnts_criteria, threshold):
+    def dist_from_similar_accnts(self, cur_accnt, accnts_criteria, threshold, user_report_react=False):
         '''
         For cur_accnt:
         1. Compute its distance to all other similar accounts
         2. Compute how many times the distance exceeds our threshold
         3. If the count > |set_accnts|/2, flag cur_accnt
         '''
-        cur_lat_long = accnts_criteria[cur_accnt]["lat-long"]
-        exceed_cnt = 0
-        for key, value in accnts_criteria.items():
-            if key != cur_accnt:
-                exceed_cnt += int(self.dist_from_lat_long(cur_lat_long, accnts_criteria[key]["lat-long"]) > threshold)
-        return int(exceed_cnt > (len(list(accnts_criteria.keys()))-1)/2)
+        if user_report_react:
+            cur_lat_long = accnts_criteria["0"]["lat-long"]
+            print("Distance:{}".format(self.dist_from_lat_long(cur_lat_long, accnts_criteria["1"]["lat-long"])))
+            return int(self.dist_from_lat_long(cur_lat_long, accnts_criteria["1"]["lat-long"]) > threshold)
+        else:
+            cur_lat_long = accnts_criteria[cur_accnt]["lat-long"]
+            exceed_cnt = 0
+            for key, value in accnts_criteria.items():
+                if key != cur_accnt:
+                    exceed_cnt += int(self.dist_from_lat_long(cur_lat_long, accnts_criteria[key]["lat-long"]) > threshold)
+            return int(exceed_cnt > (len(list(accnts_criteria.keys()))-1)/2)
 
 
-    def check_followers(self, cur_accnt, accnts_criteria):
+    def check_followers(self, cur_accnt, accnts_criteria, user_report_react=False):
         '''
         For cur_accnt:
         1. If it has no followers or no following, flag
         2. Check closed cycle (TODO)
         '''
+        if user_report_react:
+            cur_accnt = "1"
         followers_list = accnts_criteria[cur_accnt]["Followers"]
+        following_list = accnts_criteria[cur_accnt]["Following"]
+        if user_report_react:
+            return int(len(following_list) == 0 or len(followers_list) == 0)
         m1 = re.search('([0-9]+)', followers_list)
         if not m1:
             return 1
-        following_list = accnts_criteria[cur_accnt]["Following"]
         m2 = re.search('([0-9]+)', followers_list)
         if not m2:
             return 1
         return 0
 
-    def search_char_sub(self, cur_accnt, accnts_criteria):
+    def search_char_sub(self, cur_accnt, accnts_criteria, user_report_react=False):
         '''
         Referenced:
         https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5614409/
@@ -287,60 +324,77 @@ class ModBot(discord.Client):
             set(['B', '8'])
         ]
 
-        sub_cnt = 0
-        cur_name = accnts_criteria[cur_accnt]["Name"]
-        for i in range(len(cur_name)):
-            cur_char = cur_name[i]
-            diff = 0
-            common_char = {}
-            for key, value in accnts_criteria.items():
-                if i >= len(value["Name"]):
-                    continue
-                if key != cur_accnt and value["Name"][i] != cur_char:
-                    diff += 1
-                    if value["Name"][i] not in common_char.keys():
-                        common_char[value["Name"][i]] = 1
-                    else:
-                        common_char[value["Name"][i]] += 1
-            common_char_list = list(common_char.items())
-            common_char_list.sort(key = lambda x : x[1], reverse=True)
+        if user_report_react:
+            user_name = accnts_criteria["0"]["Name"]
+            reported_name = accnts_criteria["1"]["Name"]
+            sub_cnt = 0
+            for i in range(min(len(user_name), len(reported_name))):
+                if reported_name[i] != user_name[i]:
+                    for s in BLACKLIST:
+                        if user_name[i] in s:
+                            sub_cnt += int(reported_name[i] in s)
+                            break
+            return int(sub_cnt > 0)
+        else:
+            sub_cnt = 0
+            cur_name = accnts_criteria[cur_accnt]["Name"]
+            for i in range(len(cur_name)):
+                cur_char = cur_name[i]
+                diff = 0
+                common_char = {}
+                for key, value in accnts_criteria.items():
+                    if i >= len(value["Name"]):
+                        continue
+                    if key != cur_accnt and value["Name"][i] != cur_char:
+                        diff += 1
+                        if value["Name"][i] not in common_char.keys():
+                            common_char[value["Name"][i]] = 1
+                        else:
+                            common_char[value["Name"][i]] += 1
+                common_char_list = list(common_char.items())
+                common_char_list.sort(key = lambda x : x[1], reverse=True)
 
-            if diff > len(list(accnts_criteria.keys())) / 2:
-                for s in BLACKLIST:
-                    if common_char_list[0][0] in s:
-                        sub_cnt += int(cur_char in s)
-                        break
-        return int(sub_cnt > 0)
+                if diff > len(list(accnts_criteria.keys())) / 2:
+                    for s in BLACKLIST:
+                        if common_char_list[0][0] in s:
+                            sub_cnt += int(cur_char in s)
+                            break
+            return int(sub_cnt > 0)
 
-    def batch_parse(self, message):
-        similar_accnts = json.loads(message.content)
-        accnts_criteria = {}
-        for key, value in similar_accnts.items():
-            accnts_criteria[key] = self.parse_message(value)
-        return accnts_criteria
-
-    def compute_sus_score(self, accnts_criteria):
+    def compute_sus_score(self, accnts_criteria, user_report_react=False):
         '''
         Sus score counts how many times an account is flagged in the following aspects:
         1. The account ip address is far from other similar accounts
         2. The account has less than 5 followers and the social network of the followers and following is closed
         3. Intentional blacklisted character substitution detected
+        4. If the account is reported by the user, sus score += 1
         '''
-       
         unusual_report_counts = []
-        # set normal number of reports per user is <= 1
-        report_counts_benchmark = 1
-        sus_scores = {}
-        for key, value in accnts_criteria.items():
-            if accnts_criteria[key]['Reported reasons'] != "Impersonation":
-                continue
+        report_counts_benchmark = 2
+
+        if user_report_react:
+            sus_scores = {}
             cur_score = 0
-            cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
-            cur_score += self.check_followers(key, accnts_criteria)
-            cur_score += self.search_char_sub(key, accnts_criteria)
-            sus_scores[accnts_criteria[key]["Name"]] = cur_score
-            if int(accnts_criteria[key]["Report Counts"]) > report_counts_benchmark:
-                unusual_report_counts.append(accnts_criteria[key]["Name"])
+            cur_score += self.dist_from_similar_accnts("0", accnts_criteria, 500, user_report_react)
+            cur_score += self.check_followers("0", accnts_criteria, user_report_react)
+            cur_score += self.search_char_sub("0", accnts_criteria, user_report_react)
+            accnts_criteria["1"]["Report Counts"] += 1
+            sus_scores[accnts_criteria["1"]["Name"]] = cur_score
+            if int(accnts_criteria["1"]["Report Counts"]) >= report_counts_benchmark:
+                unusual_report_counts.append(accnts_criteria["1"]["Name"])
+        else:
+            # set normal number of reports per user is <= 1
+            sus_scores = {}
+            for key, value in accnts_criteria.items():
+                if accnts_criteria[key]['Reported reasons'] != "Impersonation":
+                    continue
+                cur_score = 0
+                cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
+                cur_score += self.check_followers(key, accnts_criteria)
+                cur_score += self.search_char_sub(key, accnts_criteria)
+                sus_scores[accnts_criteria[key]["Name"]] = cur_score
+                if int(accnts_criteria[key]["Report Counts"]) >= report_counts_benchmark:
+                    unusual_report_counts.append(accnts_criteria[key]["Name"])
         return sus_scores, unusual_report_counts
 
 
@@ -355,6 +409,72 @@ class ModBot(discord.Client):
             if sus_score[k] > avg_sus and unusual_report_counts[i]:
                 accounts_to_look.append(k)
         return accounts_to_look
+
+    # ======================= Simulate Account Data From User Report ========================
+
+    def load_ip_addresses(self):
+        input_files = ["lk.csv", "us.csv", "ve.csv"]
+        with open("ip.json", "w") as ip_f:
+            ip_by_country = {}
+            for i in input_files:
+                ip_by_country[i[:-4]] = []
+                with open(i, "r") as f:
+                    csv_reader = csv.reader(f)
+                    for row in csv_reader:
+                        if len(row) < 1:
+                            continue
+                        ip_by_country[i[:-4]].append(row[1])
+            ip_f.write(json.dumps(ip_by_country))
+
+    def construct_ip_address(self):
+        with open("ip.json", "r") as ip_f:
+            all_us = json.loads(ip_f.read())["us"]
+        return all_us[random.randint(0, len(all_us)-1)]
+
+    def sample_accounts_db(self, total_accnt, percentage_flagged):
+        TOTAL_ACCNT = total_accnt
+        PERCT_FLAGGED = percentage_flagged
+
+        with open("sample_accounts_state.json", "w") as db_f:
+            sample_accounts_state = {}
+            for i in range(TOTAL_ACCNT):
+                sample_accounts_state[i] = int(random.uniform(0, 1) < PERCT_FLAGGED)
+            db_f.write(json.dumps(sample_accounts_state))
+
+    def construct_followers(self, total_accnt):
+        followers = set([])
+        for i in range(random.randint(0, 50)):
+            cur = random.randint(0, total_accnt-1)
+            while cur in followers:
+                cur = random.randint(0, total_accnt-1)
+            followers.add(cur)
+        return list(followers)
+
+    def generate_sample_data(self, account, reported_reason="None"):
+        '''
+        Generate followers/following/ip address for reported and reporting user
+        '''
+        TOTAL_ACCNT = 1000
+        PERCT_FLAGGED = 0.02
+
+        fields = {}
+        field_names = ["Name", "Followers", "Following", "IP", "Report Counts", "Reported reasons"]
+        for i in range(len(field_names)):
+            if field_names[i] == "Name":
+                fields[field_names[i]] = account
+            if field_names[i] == "Followers":
+                fields[field_names[i]] = self.construct_followers(TOTAL_ACCNT)
+            if field_names[i] == "Following":
+                fields[field_names[i]] = self.construct_followers(TOTAL_ACCNT)
+            if field_names[i] == "IP":
+                fields["IP"] = self.construct_ip_address()
+                fields["lat-long"] = self.check_ip_location(fields["IP"])
+            if field_names[i] == "Report Counts":
+                fields[field_names[i]] = 0
+            if field_names[i] == "Reported reasons":
+                fields[field_names[i]] = reported_reason
+        return fields
+        
 
 client = ModBot(perspective_key, ip_checker_key)
 client.run(discord_token)
