@@ -158,6 +158,8 @@ class ModBot(discord.Client):
         elif moderator_res[1] == "SUSPEND":
             await mod_channel.send("\U0001F601")
             await mod_channel.send(f"Acount: {moderator_res[0]} will be suspended for a month.")
+        elif moderator_res[1] == "DEFER":
+            await mod_channel.send(f"We defer our decision about Account: {moderator_res[0]} for more investigation.")
         else:
             await mod_channel.send(f"Please provide a valid reaction towards the account in question.")
 
@@ -272,7 +274,6 @@ class ModBot(discord.Client):
         '''
         if user_report_react:
             cur_lat_long = accnts_criteria["0"]["lat-long"]
-            print("Distance:{}".format(self.dist_from_lat_long(cur_lat_long, accnts_criteria["1"]["lat-long"])))
             return int(self.dist_from_lat_long(cur_lat_long, accnts_criteria["1"]["lat-long"]) > threshold)
         else:
             cur_lat_long = accnts_criteria[cur_accnt]["lat-long"]
