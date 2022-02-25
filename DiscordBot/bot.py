@@ -103,12 +103,12 @@ class ModBot(discord.Client):
             await mod_channel.send(f'User: `{responses[1]}` just reported user: `{responses[2]}`  with the following reason: `{responses[4]}`, specifically under fake account category, this user pretends to be `{responses[5]}` whose user name is: `{responses[3]}`\n')
             for i in range(5, len(responses)):
                 await message.channel.send(responses[i])
-            if responses[3] == "None":
+            if responses[5] == "Myself":
                 user_criteria = self.generate_sample_data(responses[1])
-                reported_criteria = self.generate_sample_data(responses[2], responses[4])
+                reported_criteria = self.generate_sample_data(responses[2], reported=True, reported_reason=responses[4])
             else:
                 user_criteria = self.generate_sample_data(responses[3])
-                reported_criteria = self.generate_sample_data(responses[2], responses[4])
+                reported_criteria = self.generate_sample_data(responses[2], reported=True, reported_reason=responses[4])
             aggregate_criteria = {"0": user_criteria, "1": reported_criteria}
             print(aggregate_criteria)
             await mod_channel.send(f'{aggregate_criteria}\n\n')
@@ -455,29 +455,65 @@ class ModBot(discord.Client):
             followers.add(cur)
         return list(followers)
 
-    def generate_sample_data(self, account, reported_reason="None"):
+    def in_reports_log(self, username, reported, reported_reason):
+        with open("report_log.json") as log_f:
+            read = log_f.read()
+            if len(read) == 0:
+                return False, None
+            log = json.loads(read)
+            for k, v in log.items():
+                if v["Name"] == username:
+                    return True, k
+        return False, None
+
+    def generate_sample_data(self, account, reported=False, reported_reason="None"):
         '''
         Generate followers/following/ip address for reported and reporting user
         '''
         TOTAL_ACCNT = 1000
         PERCT_FLAGGED = 0.02
 
-        fields = {}
-        field_names = ["Name", "Followers", "Following", "IP", "Report Counts", "Reported reasons"]
-        for i in range(len(field_names)):
-            if field_names[i] == "Name":
-                fields[field_names[i]] = account
-            if field_names[i] == "Followers":
-                fields[field_names[i]] = self.construct_followers(TOTAL_ACCNT)
-            if field_names[i] == "Following":
-                fields[field_names[i]] = self.construct_followers(TOTAL_ACCNT)
-            if field_names[i] == "IP":
-                fields["IP"] = self.construct_ip_address()
-                fields["lat-long"] = self.check_ip_location(fields["IP"])
-            if field_names[i] == "Report Counts":
-                fields[field_names[i]] = 0
-            if field_names[i] == "Reported reasons":
-                fields[field_names[i]] = reported_reason
+        prev_reported, k = self.in_reports_log(account, reported, reported_reason)
+        with open("report_log.json", "r") as log_f:
+            read = log_f.read()
+            if len(read) != 0:
+                log = json.loads(read)
+            else:
+                log = {}
+
+        if not prev_reported:
+            if len(list(log.keys())) > 0:
+                new_id = int(list(log.keys())[-1])+1
+            else:
+                new_id = 0
+
+            fields = {}
+            field_names = ["Name", "Followers", "Following", "IP", "Report Counts", "Reported reasons"]
+            for i in range(len(field_names)):
+                if field_names[i] == "Name":
+                    fields[field_names[i]] = account
+                if field_names[i] == "Followers":
+                    fields[field_names[i]] = self.construct_followers(TOTAL_ACCNT)
+                if field_names[i] == "Following":
+                    fields[field_names[i]] = self.construct_followers(TOTAL_ACCNT)
+                if field_names[i] == "IP":
+                    fields["IP"] = self.construct_ip_address()
+                    fields["lat-long"] = self.check_ip_location(fields["IP"])
+                if field_names[i] == "Report Counts":
+                    fields[field_names[i]] = int(reported)
+                if field_names[i] == "Reported reasons":
+                    fields[field_names[i]] = [reported_reason]
+
+            log[new_id] = fields
+        else:
+            log[k]["Report Counts"] += int(reported)
+            if reported:
+                log[k]["Reported reasons"].append(reported_reason)
+            fields = log[k]
+
+        with open("report_log.json", "w") as log_f:
+            log_f.write(json.dumps(log))
+
         return fields
         
 
