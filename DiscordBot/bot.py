@@ -99,7 +99,7 @@ class ModBot(discord.Client):
         # This is has some security issues though
         if (responses[0] == "TRANSFER"):
             mod_channel = self.mod_channels[915746011757019217] # use a hack
-            await mod_channel.send(f'User: `{responses[1]}` just reported user: `{responses[2]}`  with the following reason: `{responses[3]}`, specifically under fake account category, this user pretends to be `{responses[4]}`\n')
+            await mod_channel.send(f'User: `{responses[1]}` just reported user: `{responses[2]}`  with the following reason: `{responses[4]}`, specifically under fake account category, this user pretends to be `{responses[5]}` whose user name is: `{responses[3]}`\n')
             for i in range(5, len(responses)):
                 await message.channel.send(responses[i])
         else:

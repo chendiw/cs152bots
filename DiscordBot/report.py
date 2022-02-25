@@ -191,9 +191,9 @@ class Report:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
             if m.group(1).upper() == 'Y':
                 self.block = True 
-                return ["TRANSFER", self.reporter, self.reportee, self.broad_report_category, self.fake_accnt_type, "Reported account banned."]
+                return ["TRANSFER", self.reporter, self.reportee, self.third_party_username, self.broad_report_category, self.fake_accnt_type, "Reported account banned."]
             else:
-                return ["TRANSFER", self.reporter, self.reportee, self.broad_report_category, self.fake_accnt_type,"Reported account not banned."]
+                return ["TRANSFER", self.reporter, self.reportee, self.third_party_username, self.broad_report_category, self.fake_accnt_type,"Reported account not banned."]
         
 
         return []
