@@ -18,6 +18,7 @@ class Report:
     START_KEYWORD = "report"
     CANCEL_KEYWORD = "cancel"
     HELP_KEYWORD = "help"
+    END_KEYWORD = "fin"
 
     # Options for report reason
     REPORT_REASON_DICT = {
@@ -26,6 +27,7 @@ class Report:
                         'C': "It's pretending to be someone else",
                         'D': "Other reasons and a moderator will review your case."
                         }
+
     A_TYPE_RES = ["About reporting a child under the age of 13 \n\n We requires everyone to be at least 13 years old before they can create an account",
                     "In some jurisdictions, this age limit may be higher.\n",
                     "If you'd like to report an account belonging to someone under 13 or if you believe someone is impersonating your child who's under 13, visit our Help Center.\n"
@@ -38,6 +40,7 @@ class Report:
                     'E': "Nudity or sexual activity",
                     'F': "Hate speech or symbols",
                     }
+
     NON_LIKABLE_FOLLOWUP= ["Thank you for your report! \n Do you want to block this account in the future? Y for yes. N for no."]
 
 
@@ -114,6 +117,12 @@ class Report:
             reply = "I found this message:" + "```" + message.author.name + ": " + message.content + "```" + "\n"
             reply += "Why are you reporting this account? (case insensitive)\n"
             self.reportee = message.author.name
+
+            # Enforce that reportee cannot be reporter
+            if self.reporter == self.reportee:
+                self.state = State.REPORT_COMPLETE
+                return ["Reporting yourself is disabled. Please report another account, starting with keyword 'report'."]
+
             for k, v in self.REPORT_REASON_DICT.items():
                 reply += "Reply {} for {}\n".format(k, v)
             return [reply]
