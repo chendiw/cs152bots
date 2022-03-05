@@ -101,8 +101,8 @@ class ModBot(discord.Client):
         if (responses[0] == "TRANSFER"):
             mod_channel = self.mod_channels[915746011757019217] # use a hack
             await mod_channel.send(f'User: `{responses[1]}` just reported user: `{responses[2]}`  with the following reason: `{responses[4]}`, specifically under fake account category, this user pretends to be `{responses[5]}` whose user name is: `{responses[3]}`\n')
-            for i in range(5, len(responses)):
-                await message.channel.send(responses[i])
+            # for i in range(5, len(responses)):
+            #     await message.channel.send(responses[i])
             if responses[5] == "Myself":
                 user_criteria = self.generate_sample_data(responses[1])
                 reported_criteria = self.generate_sample_data(responses[2], reported=True, reported_reason=responses[4])

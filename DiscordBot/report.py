@@ -11,7 +11,8 @@ class State(Enum):
     FAKE_ACCNT_IDENTIFIED = auto()
     MYSELF_IDENTIFIED = auto()
     THIRD_PARTY_IDENTIFIED = auto()
-    TO_BLOCK = auto()
+    BLOCK_CONTENT = auto()
+    BLOCK_IMPERSONATION = auto()
     NON_LIKABLE_TYPE = auto()
 
 class Report:
@@ -40,9 +41,6 @@ class Report:
                     'E': "Nudity or sexual activity",
                     'F': "Hate speech or symbols",
                     }
-
-    NON_LIKABLE_FOLLOWUP= ["Thank you for your report! \n Do you want to block this account in the future? Y for yes. N for no."]
-
 
     # Options for fake account type
     FAKE_ACCNT_TYPE_DICT = {'A': "Myself",
@@ -156,8 +154,9 @@ class Report:
                 return ["A member of the team will investigate your case. Thanks for reporting."]
         
         if self.state == State.NON_LIKABLE_TYPE:
-            self.state = State.TO_BLOCK
-            return self.NON_LIKABLE_FOLLOWUP
+            self.state = State.BLOCK_CONTENT
+            reply = "Thank you for your report! \n Do you want to block this account in the future? Y for yes. N for no."
+            return [reply]
 
         if self.state == State.FAKE_ACCNT_IDENTIFIED:
             m = re.search('([ABCD|abcd])', message.content)
@@ -187,7 +186,7 @@ class Report:
             This may result in the reported account suspension, shadowblock, or removal. \
             You will hear back about our decision regarding this report in the next few weeks. \n\n \
             Do you want us to block this account from any future interaction with you?"
-            self.state = State.TO_BLOCK
+            self.state = State.BLOCK_IMPERSONATION
             return [reply]
 
         if self.state == State.THIRD_PARTY_IDENTIFIED:
@@ -195,15 +194,24 @@ class Report:
             print("Third party names: {}".format(self.third_party_username))
             reply = "Thank you for reporting. Our content moderation team will review your report. This may result in the reported account suspension, shadowblock, or removal. You will hear back about our decision regarding this report in the next few weeks. \n\n \
             Do you want us to block this account from any future interaction with you? \n Y for yes. N for no."
-            self.state = State.TO_BLOCK
+            self.state = State.BLOCK_IMPERSONATION
             return [reply]
 
-        if self.state == State.TO_BLOCK:
+        if self.state == State.BLOCK_CONTENT:
             m = re.search('([Yy|Nn])', message.content)
             if not m:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
             if m.group(1).upper() == 'Y':
-                self.block = True 
+                self.block = True
+                reply = "Account {} is blocked.".format(self.reportee)
+                return [reply]
+
+        if self.state == State.BLOCK_IMPERSONATION:
+            m = re.search('([Yy|Nn])', message.content)
+            if not m:
+                return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
+            if m.group(1).upper() == 'Y':
+                self.block = True
                 return ["TRANSFER", self.reporter, self.reportee, self.third_party_username, self.broad_report_category, self.fake_accnt_type, "Reported account banned."]
             else:
                 return ["TRANSFER", self.reporter, self.reportee, self.third_party_username, self.broad_report_category, self.fake_accnt_type,"Reported account not banned."]
