@@ -114,14 +114,15 @@ class Report:
             # Here we've found the message - it's up to you to decide what to do next!
             # self.state = State.MESSAGE_IDENTIFIED
             self.state = State.WHY_REPORT_ACCNT
-            reply = "I found this message:" + "```" + message.author.name + ": " + message.content + "```" + "\n"
-            reply += "Why are you reporting this account? (case insensitive)\n"
             self.reportee = message.author.name
 
             # Enforce that reportee cannot be reporter
             if self.reporter == self.reportee:
                 self.state = State.REPORT_COMPLETE
                 return ["Reporting yourself is disabled. Please report another account, starting with keyword 'report'."]
+
+            reply = "I found this message:" + "```" + self.reportee + ": " + message.content + "```" + "\n"
+            reply += "Why are you reporting this account? (case insensitive)\n"
 
             for k, v in self.REPORT_REASON_DICT.items():
                 reply += "Reply {} for {}\n".format(k, v)
@@ -131,25 +132,28 @@ class Report:
             m = re.search('([ABCDE|abcde])', message.content)
             if not m:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
+
             response = m.group(1).upper()
-            if response != 'B' and response != 'C':
-                reply = self.other_cases(response)
-                # self.state = State.TO_BLOCK
-                # self.report_complete()
-                # return ["A member of the team will investigate your case. Thanks for reporting."]
-                return reply
+            self.broad_report_category = self.BROAD_REPORT_DICT[response]
+            if response == 'A':
+                print(f'getting other reports accounts {self.broad_report_category}')
+                return ["TRANSFER", self.reporter, self.reportee, self.broad_report_category, self.fake_accnt_type,] + self.A_TYPE_RES 
+            elif response == 'B':
+                self.state = State.NON_LIKABLE_TYPE
+                reply = ""
+                for k, v in self.B_TYPE_DICT.items():
+                    reply += "Reply {} for {}\n".format(k, v)
+                return [reply]
             elif response == 'C':
-                print(f'getting fake accounts {self.BROAD_REPORT_DICT[response]}')
-                self.broad_report_category = self.BROAD_REPORT_DICT[response]
+                print(f'getting fake accounts {self.broad_report_category}')
                 self.state = State.FAKE_ACCNT_IDENTIFIED
                 reply = "We'd like to know more. Who is this account pretending to be?\n"
                 for k, v in self.FAKE_ACCNT_TYPE_DICT.items():
                     reply += "Reply {} for {}\n".format(k, v)
                 return [reply]
-            else:
-                self.broad_report_category = self.BROAD_REPORT_DICT['B']
-                self.state = State.NON_LIKABLE_TYPE
-                return self.non_likable()
+            elif response == 'D':
+                print(f'getting other reports accounts {self.broad_report_category}')
+                return ["A member of the team will investigate your case. Thanks for reporting."]
         
         if self.state == State.NON_LIKABLE_TYPE:
             self.state = State.TO_BLOCK
@@ -209,22 +213,6 @@ class Report:
 
     def report_complete(self):
         return self.state == State.REPORT_COMPLETE
-    
-    def non_likable(self):
-        reply = ""
-        for k, v in self.B_TYPE_DICT.items():
-            reply += "Reply {} for {}\n".format(k, v)
-        return [reply]
-
-    def other_cases(self, res):
-        if res != 'A' and res != 'D':
-            return ['Please provide a valid choice.']
-        print(f'getting other reports accounts {self.BROAD_REPORT_DICT[res]}')
-        self.broad_report_category = self.BROAD_REPORT_DICT[res]
-        if res == 'A':
-            return ["TRANSFER", self.reporter, self.reportee, self.broad_report_category, self.fake_accnt_type,] + self.A_TYPE_RES 
-        elif res == 'D':
-            return ["A member of the team will investigate your case. Thanks for reporting."]
         
             
     
