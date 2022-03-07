@@ -1,4 +1,5 @@
 # bot.py
+from pyexpat import features
 import discord
 from discord.ext import commands
 import os
@@ -9,6 +10,7 @@ import requests
 import random
 from report import Report
 from math import radians, cos, sin, asin, sqrt
+from xgboost import XGBClassifier
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -28,9 +30,16 @@ with open(token_path) as f:
     perspective_key = tokens['perspective']
     ip_checker_key = tokens['ip_checker']
 
+# The path of XGBoost model 
+model_path = "../ML/instafake-dataset/model.json"
+clf = XGBClassifier()
+clf.load_model(model_path)
+feature_fields = ['user_media_count', 'user_follower_count', 'user_following_count',
+       'user_has_profil_pic', 'user_is_private', 'follower_following_ratio',
+       'user_biography_length', 'username_length', 'username_digit_count']
 
 class ModBot(discord.Client):
-    def __init__(self, perspective_key, ip_checker_key):
+    def __init__(self, perspective_key, ip_checker_key, model):
         intents = discord.Intents.default()
         super().__init__(command_prefix='.', intents=intents)
         self.group_num = None
@@ -38,6 +47,7 @@ class ModBot(discord.Client):
         self.reports = {} # Map from user IDs to the state of their report
         self.perspective_key = perspective_key
         self.ip_checker_key = ip_checker_key
+        self.clf = model 
 
     async def on_ready(self):
         print(f'{self.user.name} has connected to Discord! It is these guilds:')
@@ -396,9 +406,12 @@ class ModBot(discord.Client):
         if user_report_react:
             sus_scores = {}
             cur_score = 0
-            cur_score += self.dist_from_similar_accnts("0", accnts_criteria, 500, user_report_react)
-            cur_score += self.check_followers("0", accnts_criteria, user_report_react)
-            cur_score += self.search_char_sub("0", accnts_criteria, user_report_react)
+            # cur_score += self.dist_from_similar_accnts("0", accnts_criteria, 500, user_report_react)
+            # cur_score += self.check_followers("0", accnts_criteria, user_report_react)
+            # cur_score += self.search_char_sub("0", accnts_criteria, user_report_react)
+            features = [accnts_criteria['0'][f_key] for f_key in feature_fields]
+            cur_score += self.clf.predict_proba(features)[:, 1] # the probability of being fake account
+
             accnts_criteria["1"]["Report Counts"] += 1
             sus_scores[accnts_criteria["1"]["Name"]] = cur_score
             if int(accnts_criteria["1"]["Report Counts"]) >= report_counts_benchmark:
@@ -410,9 +423,13 @@ class ModBot(discord.Client):
                 if accnts_criteria[key]['Reported reasons'] != "Impersonation":
                     continue
                 cur_score = 0
-                cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
-                cur_score += self.check_followers(key, accnts_criteria)
-                cur_score += self.search_char_sub(key, accnts_criteria)
+                
+                # cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
+                # cur_score += self.check_followers(key, accnts_criteria)
+                # cur_score += self.search_char_sub(key, accnts_criteria)
+                features = [accnts_criteria[key][f_key] for f_key in feature_fields]
+                cur_score += self.clf.predict_proba(features)[:, 1]
+
                 sus_scores[accnts_criteria[key]["Name"]] = cur_score
                 if int(accnts_criteria[key]["Report Counts"]) >= report_counts_benchmark:
                     unusual_report_counts.append(accnts_criteria[key]["Name"])
@@ -537,5 +554,5 @@ class ModBot(discord.Client):
         return fields
         
 
-client = ModBot(perspective_key, ip_checker_key)
+client = ModBot(perspective_key, ip_checker_key, clf)
 client.run(discord_token)
