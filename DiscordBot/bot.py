@@ -11,6 +11,8 @@ import random
 from report import Report
 from math import radians, cos, sin, asin, sqrt
 from xgboost import XGBClassifier
+import numpy as np
+from collections import Counter
 
 # Set up logging to the console
 logger = logging.getLogger('discord')
@@ -78,8 +80,8 @@ class ModBot(discord.Client):
             return
         # Check if this message was sent in a server ("guild") or if it's a DM
         if message.guild:
-            if message.channel.name == f'group-{self.group_num}':
-                await self.handle_channel_message(message)
+            # if message.channel.name == f'group-{self.group_num}':
+            #     await self.handle_channel_message(message)
             if message.channel.name == f'group-{self.group_num}-mod':
                 await self.handle_moderator_react(message)     
         else:
@@ -109,8 +111,16 @@ class ModBot(discord.Client):
         responses = await self.reports[author_id].handle_message(message)
         # This is has some security issues though
         if (responses[0] == "TRANSFER"):
+            # reply to user to mark the completion of this report
+            dm_res = self.reports[author_id].handle_blocked_request_after_transfer()
+            for r in dm_res:
+                await message.channel.send(r)
+
+            # Handle reported case in mod
             mod_channel = self.mod_channels[915746011757019217] # use a hack
-            await mod_channel.send(f'User: `{responses[1]}` just reported user: `{responses[2]}`  with the following reason: `{responses[4]}`, specifically under fake account category, this user pretends to be `{responses[5]}` whose user name is: `{responses[3]}`\n')
+            if responses[5] == "Myself":
+                responses[3] = responses[1]
+            await mod_channel.send(f'**Summary**: User: `{responses[1]}` just reported user: `{responses[2]}`  with the following reason: `{responses[4]}`, specifically under fake account category, this user pretends to be `{responses[5]}` whose user name is: `{responses[3]}`\n')
             # for i in range(5, len(responses)):
             #     await message.channel.send(responses[i])
             if responses[5] == "Myself":
@@ -121,13 +131,22 @@ class ModBot(discord.Client):
                 reported_criteria = self.generate_sample_data(responses[2], reported=True, reported_reason=responses[4])
             aggregate_criteria = {"0": user_criteria, "1": reported_criteria}
             print(aggregate_criteria)
-            await mod_channel.send(f'{aggregate_criteria}\n\n')
+            await mod_channel.send(f'{self.print_aggregate_report(aggregate_criteria)}\n')
             sus_score, unusual_report_counts = self.compute_sus_score(aggregate_criteria, user_report_react=True)
-            await mod_channel.send(f'We have suspicious score calculated for the accounts as following\n {sus_score}. Those scores are specifically for impersonation.\n')
-            await mod_channel.send(f'The following accounts have unusual high report counts\n {unusual_report_counts} on impersonation.\n')
-            decision = self.decision_making(sus_score, unusual_report_counts)
-            await mod_channel.send(f'We find the following accounts most likely to be fake accounts:\n {decision}\n')
-            await mod_channel.send(f'Please type in the userid (case sensitive), and the action you want to take. Separated by comma, no space in between.\n')
+            await mod_channel.send(f'**Suspicious Scores**: The probability of the accounts being fake (impersonation): \n{self.print_sus_scores(sus_score)}\n')
+            if len(unusual_report_counts) > 0:
+                await mod_channel.send(f'**Report Counts**: The following accounts have unusual high report counts on impersonation.\n{self.print_unusual_report_counts(aggregate_criteria)}\n')
+            else:
+                await mod_channel.send(f'**Report Counts**: Neither of the accounts have unusual high report counts on impersonation.\n')
+
+            # decision = self.decision_making(sus_score, unusual_report_counts)
+            # await mod_channel.send(f'We find the following accounts most likely to be fake accounts:\n {decision}\n')
+            await mod_channel.send(f'Please review the above information and make a decision from\n' + \
+                                    '\t\t\tBAN - ban the user from all other users\n' + \
+                                   '\t\t\tSUSPEND - suspend the user for a month\n' + \
+                                   '\t\t\tDEFER - defer the decision for more investigation\n' + \
+                                   'Please type in the username (case sensitive), and the action you want to take from BAN/SUSPEND/DEFER. Separated by comma, no space in between.\n')
+
         else:
             for r in responses:
                 await message.channel.send(r)
@@ -401,20 +420,28 @@ class ModBot(discord.Client):
         4. If the account is reported by the user, sus score += 1
         '''
         unusual_report_counts = []
-        report_counts_benchmark = 1
+        report_counts_threshold = 1
 
         if user_report_react:
             sus_scores = {}
-            cur_score = 0
+            # cur_score = 0
             # cur_score += self.dist_from_similar_accnts("0", accnts_criteria, 500, user_report_react)
             # cur_score += self.check_followers("0", accnts_criteria, user_report_react)
             # cur_score += self.search_char_sub("0", accnts_criteria, user_report_react)
-            features = [accnts_criteria['0'][f_key] for f_key in feature_fields]
-            cur_score += self.clf.predict_proba(features)[:, 1] # the probability of being fake account
+            reporter_features = self.collect_features(accnts_criteria["0"])
+            reportee_features = self.collect_features(accnts_criteria["1"])
+            reporter_sus_score = self.clf.predict_proba(reporter_features)[:, 1]
+            reportee_sus_score = self.clf.predict_proba(reportee_features)[:, 1]
+            # features = [accnts_criteria['0'][f_key] for f_key in feature_fields]
+            # cur_score += self.clf.predict_proba(features)[:, 1] # the probability of being fake account
 
             accnts_criteria["1"]["Report Counts"] += 1
-            sus_scores[accnts_criteria["1"]["Name"]] = cur_score
-            if int(accnts_criteria["1"]["Report Counts"]) >= report_counts_benchmark:
+            sus_scores[accnts_criteria["0"]["Name"]] = reporter_sus_score
+            sus_scores[accnts_criteria["1"]["Name"]] = reportee_sus_score
+
+            if int(accnts_criteria["0"]["Report Counts"]) >= report_counts_threshold:
+                unusual_report_counts.append(accnts_criteria["0"]["Name"])
+            if int(accnts_criteria["1"]["Report Counts"]) >= report_counts_threshold:
                 unusual_report_counts.append(accnts_criteria["1"]["Name"])
         else:
             # set normal number of reports per user is <= 1
@@ -422,16 +449,16 @@ class ModBot(discord.Client):
             for key, value in accnts_criteria.items():
                 if accnts_criteria[key]['Reported reasons'] != "Impersonation":
                     continue
-                cur_score = 0
-                
+                # cur_score = 0
                 # cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
                 # cur_score += self.check_followers(key, accnts_criteria)
                 # cur_score += self.search_char_sub(key, accnts_criteria)
-                features = [accnts_criteria[key][f_key] for f_key in feature_fields]
-                cur_score += self.clf.predict_proba(features)[:, 1]
 
-                sus_scores[accnts_criteria[key]["Name"]] = cur_score
-                if int(accnts_criteria[key]["Report Counts"]) >= report_counts_benchmark:
+                features = self.collect_features(accnts_criteria[key])
+                sus_score = self.clf.predict_proba(features)[:, 1]
+
+                sus_scores[accnts_criteria[key]["Name"]] = sus_score
+                if int(accnts_criteria[key]["Report Counts"]) >= report_counts_threshold:
                     unusual_report_counts.append(accnts_criteria[key]["Name"])
         return sus_scores, unusual_report_counts
 
@@ -525,7 +552,8 @@ class ModBot(discord.Client):
                 new_id = 0
 
             fields = {}
-            field_names = ["Name", "Followers", "Following", "IP", "Report Counts", "Reported reasons"]
+            field_names = ["Name", "Followers", "Following", "IP", "Report Counts", "Reported reasons",
+                           "Media Count", "Has Profile Pic", "Is Private", "Biography Length", "Username length", "Username Digit Count"]
             for i in range(len(field_names)):
                 if field_names[i] == "Name":
                     fields[field_names[i]] = account
@@ -541,6 +569,21 @@ class ModBot(discord.Client):
                 if field_names[i] == "Reported reasons":
                     fields[field_names[i]] = [reported_reason]
 
+            # features
+            is_fake = np.random.choice([0, 1], p=[0.5, 0.5])
+            if is_fake:
+                fields["Media Count"] = random.randint(0, 5)
+                fields["Has Profile Pic"] = int(np.random.choice([0, 1], p=[0.8, 0.2]))
+                fields["Is Private"] = int(np.random.choice([0, 1], p=[0.8, 0.2]))
+                fields["Biography Length"] = random.randint(0, 10)
+            else:
+                fields["Media Count"] = random.randint(10, 30)
+                fields["Has Profile Pic"] = int(np.random.choice([0, 1], p=[0.1, 0.9]))
+                fields["Is Private"] = int(np.random.choice([0, 1], p=[0.5, 0.5]))
+                fields["Biography Length"] = random.randint(5, 20)
+            fields["Username length"] = len(account)
+            fields["Username Digit Count"] = sum(c.isdigit() for c in account)
+
             log[new_id] = fields
         else:
             log[k]["Report Counts"] += int(reported)
@@ -552,7 +595,70 @@ class ModBot(discord.Client):
             log_f.write(json.dumps(log))
 
         return fields
-        
+
+    def collect_features(self, data):
+        features = {
+            'user_media_count': data["Media Count"],
+            'user_follower_count': len(data["Followers"]),
+            'user_following_count': len(data["Following"]),
+            'user_has_profil_pic': data["Has Profile Pic"],
+            'user_is_private': data["Is Private"],
+            'follower_following_ratio': float(len(data["Followers"])) / len(data["Following"]),
+            'user_biography_length': data["Biography Length"],
+            'username_length': data["Username length"],
+            'username_digit_count': data["Username Digit Count"]
+        }
+        feature_vector = np.array([features[key] for key in feature_fields])
+        return feature_vector[np.newaxis, :]
+
+    def print_sus_scores(self, sus_scores):
+        string = ""
+        for username, score in sus_scores.items():
+            string += "\t\t\t* `{}`: `{:.4f}`\n".format(username, score[0])
+        return string
+
+    def print_aggregate_report(self, report):
+        cloned = report["0"]
+        reported = report["1"]
+        indentation = '\t\t\t'
+        string = ""
+        for acc, tag in zip([reported, cloned], ["reported", "cloned"]):
+            string += f"**Account Summary for {tag} user `{acc['Name']}`**\n"
+            string += f"{indentation}- Name: `{acc['Name']}`\n"
+            string += f"{indentation}- Followers Count: `{len(acc['Followers'])}`\n"
+            string += f"{indentation}- Following Count: `{len(acc['Following'])}`\n"
+            string += f"{indentation}- Media Count: `{acc['Media Count']}`\n"
+            has_profile_pic = "yes" if acc['Has Profile Pic'] == 1 else "no"
+            is_private = "yes" if acc['Is Private'] == 1 else "no"
+            string += f"{indentation}- Has Profile Pic: `{has_profile_pic}`\n"
+            string += f"{indentation}- Account is private: `{is_private}`\n"
+            # string += f"{indentation}IP: `{acc['IP']}`\n"
+            # string += f"{indentation}lat-long: `{acc['lat-long']}`\n"
+            # string += f"{indentation}* *Report Counts*: `{acc['Report Counts']}`\n"
+            # if acc['Report Counts'] > 0:
+            #     string += f"{indentation}* *Reported Reasons*: `{self.print_reported_reasons(acc['Reported reasons'])}`\n"
+        return string
+
+    def print_reported_reasons(self, reported_reasons):
+        counter = Counter(reported_reasons)
+        counter.pop("None", None)
+        string = ""
+        for k, v in counter.items():
+            string += f"{k}[{v} times], "
+        return string[:-2]
+
+    def print_unusual_report_counts(self, report):
+        cloned = report["0"]
+        reported = report["1"]
+        indentation = '\t\t\t'
+        string = ""
+        for acc in [reported, cloned]:
+            if acc['Report Counts'] > 1:
+                string += f"{indentation}`{acc['Name']}`\n"
+                string += f"{indentation}* Report Counts: `{acc['Report Counts']}`\n"
+                string += f"{indentation}* Reported Reasons: `{self.print_reported_reasons(acc['Reported reasons'])}`\n"
+        return string
+
 
 client = ModBot(perspective_key, ip_checker_key, clf)
 client.run(discord_token)

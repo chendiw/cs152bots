@@ -29,9 +29,8 @@ class Report:
                         'D': "Other reasons and a moderator will review your case."
                         }
 
-    A_TYPE_RES = ["About reporting a child under the age of 13 \n\n We requires everyone to be at least 13 years old before they can create an account",
-                    "In some jurisdictions, this age limit may be higher.\n",
-                    "If you'd like to report an account belonging to someone under 13 or if you believe someone is impersonating your child who's under 13, visit our Help Center.\n"
+    A_TYPE_RES = ["Thank you for reporting! About reporting a child under the age of 13:\n\n",
+                  "We requires everyone to be at least 13 years old before they can create an account. In some jurisdictions, this age limit may be higher.\nIf you'd like to report an account belonging to someone under 13 or if you believe someone is impersonating your child who's under 13, visit our Help Center.\n"
                 ]
 
     B_TYPE_DICT = {'A': "It's a spam",
@@ -135,7 +134,8 @@ class Report:
             self.broad_report_category = self.BROAD_REPORT_DICT[response]
             if response == 'A':
                 print(f'getting other reports accounts {self.broad_report_category}')
-                return ["TRANSFER", self.reporter, self.reportee, self.broad_report_category, self.fake_accnt_type,] + self.A_TYPE_RES 
+                self.state = State.REPORT_COMPLETE
+                return self.A_TYPE_RES + ["Report completed."]
             elif response == 'B':
                 self.state = State.NON_LIKABLE_TYPE
                 reply = ""
@@ -151,7 +151,8 @@ class Report:
                 return [reply]
             elif response == 'D':
                 print(f'getting other reports accounts {self.broad_report_category}')
-                return ["A member of the team will investigate your case. Thanks for reporting."]
+                self.state = State.REPORT_COMPLETE
+                return ["A member of the team will investigate your case. Thanks for reporting.\nReport completed."]
         
         if self.state == State.NON_LIKABLE_TYPE:
             self.state = State.BLOCK_CONTENT
@@ -185,7 +186,7 @@ class Report:
             reply = "Thank you for reporting. Our content moderation team will review your report. \
             This may result in the reported account suspension, shadowblock, or removal. \
             You will hear back about our decision regarding this report in the next few weeks. \n\n \
-            Do you want us to block this account from any future interaction with you?"
+            Do you want us to block this account from any future interaction with you? \n Y for yes. N for no."
             self.state = State.BLOCK_IMPERSONATION
             return [reply]
 
@@ -203,7 +204,8 @@ class Report:
                 return ["I'm sorry, I couldn't read the response. Please reply a single letter or say 'cancel' to cancel."]
             if m.group(1).upper() == 'Y':
                 self.block = True
-                reply = "Account {} is blocked.".format(self.reportee)
+                reply = "Account {} is blocked.\nReport completed.".format(self.reportee)
+                self.state = State.REPORT_COMPLETE
                 return [reply]
 
         if self.state == State.BLOCK_IMPERSONATION:
@@ -215,9 +217,16 @@ class Report:
                 return ["TRANSFER", self.reporter, self.reportee, self.third_party_username, self.broad_report_category, self.fake_accnt_type, "Reported account banned."]
             else:
                 return ["TRANSFER", self.reporter, self.reportee, self.third_party_username, self.broad_report_category, self.fake_accnt_type,"Reported account not banned."]
-        
 
         return []
+
+    def handle_blocked_request_after_transfer(self):
+        if self.block:
+            reply = f"Account {self.reportee} is blocked.\nReport completed."
+        else:
+            reply = f"Report completed."
+        self.state = State.REPORT_COMPLETE
+        return [reply]
 
     def report_complete(self):
         return self.state == State.REPORT_COMPLETE
