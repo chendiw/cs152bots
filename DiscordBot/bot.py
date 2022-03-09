@@ -132,8 +132,10 @@ class ModBot(discord.Client):
             aggregate_criteria = {"0": user_criteria, "1": reported_criteria}
             print(aggregate_criteria)
             await mod_channel.send(f'{self.print_aggregate_report(aggregate_criteria)}\n')
-            sus_score, unusual_report_counts = self.compute_sus_score(aggregate_criteria, user_report_react=True)
+            sus_score, unusual_report_counts, flagging = self.compute_sus_score(aggregate_criteria, user_report_react=True)
             await mod_channel.send(f'**Suspicious Scores**: The probability of the accounts being fake (impersonation): \n{self.print_sus_scores(sus_score)}\n')
+            await mod_channel.send(f'**Rule-based Flagging**: This is the rule-based flagging for account `{responses[2]}`: \n{self.print_flagging(flagging)}\n')
+
             if len(unusual_report_counts) > 0:
                 await mod_channel.send(f'**Report Counts**: The following accounts have unusual high report counts on impersonation.\n{self.print_unusual_report_counts(aggregate_criteria)}\n')
             else:
@@ -420,20 +422,21 @@ class ModBot(discord.Client):
         4. If the account is reported by the user, sus score += 1
         '''
         unusual_report_counts = []
+        flagging = []
         report_counts_threshold = 1
 
         if user_report_react:
             sus_scores = {}
-            # cur_score = 0
-            # cur_score += self.dist_from_similar_accnts("0", accnts_criteria, 500, user_report_react)
-            # cur_score += self.check_followers("0", accnts_criteria, user_report_react)
-            # cur_score += self.search_char_sub("0", accnts_criteria, user_report_react)
+
+            # flagging
+            flagging.append(self.dist_from_similar_accnts("0", accnts_criteria, 500, user_report_react))
+            flagging.append(self.check_followers("0", accnts_criteria, user_report_react))
+            flagging.append(self.search_char_sub("0", accnts_criteria, user_report_react))
+
             reporter_features = self.collect_features(accnts_criteria["0"])
             reportee_features = self.collect_features(accnts_criteria["1"])
             reporter_sus_score = self.clf.predict_proba(reporter_features)[:, 1]
             reportee_sus_score = self.clf.predict_proba(reportee_features)[:, 1]
-            # features = [accnts_criteria['0'][f_key] for f_key in feature_fields]
-            # cur_score += self.clf.predict_proba(features)[:, 1] # the probability of being fake account
 
             accnts_criteria["1"]["Report Counts"] += 1
             sus_scores[accnts_criteria["0"]["Name"]] = reporter_sus_score
@@ -449,10 +452,10 @@ class ModBot(discord.Client):
             for key, value in accnts_criteria.items():
                 if accnts_criteria[key]['Reported reasons'] != "Impersonation":
                     continue
-                # cur_score = 0
-                # cur_score += self.dist_from_similar_accnts(key, accnts_criteria, 500)
-                # cur_score += self.check_followers(key, accnts_criteria)
-                # cur_score += self.search_char_sub(key, accnts_criteria)
+
+                flagging.append(self.dist_from_similar_accnts(key, accnts_criteria, 500))
+                flagging.append(self.check_followers(key, accnts_criteria))
+                flagging.append(self.search_char_sub(key, accnts_criteria))
 
                 features = self.collect_features(accnts_criteria[key])
                 sus_score = self.clf.predict_proba(features)[:, 1]
@@ -460,7 +463,7 @@ class ModBot(discord.Client):
                 sus_scores[accnts_criteria[key]["Name"]] = sus_score
                 if int(accnts_criteria[key]["Report Counts"]) >= report_counts_threshold:
                     unusual_report_counts.append(accnts_criteria[key]["Name"])
-        return sus_scores, unusual_report_counts
+        return sus_scores, unusual_report_counts, flagging
 
 
     def decision_making(self, sus_score, unusual_report_counts):
@@ -657,6 +660,14 @@ class ModBot(discord.Client):
                 string += f"{indentation}`{acc['Name']}`\n"
                 string += f"{indentation}* Report Counts: `{acc['Report Counts']}`\n"
                 string += f"{indentation}* Reported Reasons: `{self.print_reported_reasons(acc['Reported reasons'])}`\n"
+        return string
+
+    def print_flagging(self, flagging):
+        emoji_map = {0: "❎", 1: "🚩"}
+        string = ""
+        string += f"\t\t\t{emoji_map[flagging[0]]}IP distances too large\n"
+        string += f"\t\t\t{emoji_map[flagging[1]]}Suspicious follower/following composition\n"
+        string += f"\t\t\t{emoji_map[flagging[2]]}Use character substitution\n"
         return string
 
 
